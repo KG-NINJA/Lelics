@@ -208,6 +208,7 @@
       let stage2SetupDone = false;
       let controlMode = "spirit"; // character or spirit or computer
       let currentHost = actors[0];
+      let stage1ExitWarningCooldown = 0; // ステージ1出口警告のクールダウン
 
       const keys = new Set();
       const logEl = document.getElementById("log");
@@ -361,11 +362,85 @@
         const host = currentHost;
         if (!host || host.type !== "character") return;
         if (host.x <= stageExitX) return;
-        if (host.id === "runner") {
-          triggerStage2();
-        } else {
-          triggerGameOver(`${host.name} が不正侵入として拘束された。位階1で突破する必要がある。`);
+        if (host.id !== "runner") {
+          // ランナー以外で突破しようとした場合は警告して押し戻す
+          if (stage1ExitWarningCooldown <= 0) {
+            pushLog(`${host.name} の姿では検問を突破できない。ランナーに戻ろう。`);
+            stage1ExitWarningCooldown = 2.5;
+          }
+          host.x = Math.min(host.x, stageExitX - 12);
+          resetVelocity(host);
+          return;
         }
+        triggerStage2();
+      };
+
+      // ステージ2の助っ人出現を時間経過で制御
+      const updateStage2Assist = (dt) => {
+        if (stage !== 2 || gameOver || bossDefeated) return;
+        const event = stage2AssistEvent;
+        event.timer += dt;
+
+        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
+          event.state = "idle";
+          event.timer = 0;
+          if (!getActorById(event.actorId)) {
+            // 上位キャラクターを初登場させる
+            actors.push({
+              id: event.actorId,
+              name: "上級執行官ツヴァイ",
+              rank: 6,
+              type: "character",
+              color: "#ffb5ff",
+              x: bossZoneX - 80,
+              y: groundY - 48,
+              vx: 0,
+              vy: 0,
+              speed: 200,
+              possessable: false,
+              downed: false,
+              talk: ["ボスの警護は任せろ……油断はしない。"],
+            });
+            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
+          }
+        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
+          event.state = "opening";
+          event.timer = 0;
+          const elite = getActorById(event.actorId);
+          if (elite) {
+            elite.possessable = true;
+            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
+          }
+        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
+          const elite = getActorById(event.actorId);
+          if (!event.heroPossessed) {
+            event.state = "cooldown";
+            event.timer = 0;
+            if (elite) {
+              elite.possessable = false;
+            }
+            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
+          }
+        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
+          event.state = "idle";
+          event.timer = 0;
+        }
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
       };
 
       // ステージ2の助っ人出現を時間経過で制御
@@ -899,6 +974,10 @@
 
         if (stageBannerTimer > 0) {
           stageBannerTimer = Math.max(0, stageBannerTimer - dt);
+        }
+        if (stage1ExitWarningCooldown > 0) {
+          // 警告ログの連打を防ぐためのクールダウン
+          stage1ExitWarningCooldown = Math.max(0, stage1ExitWarningCooldown - dt);
         }
 
         draw();
