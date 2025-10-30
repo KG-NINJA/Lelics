@@ -395,6 +395,7 @@
           host.x = Math.min(host.x, poleTouchX - 18);
           resetVelocity(host);
           return;
+
         }
         pushLog("検問ポールが位階1を認証。通行許可が下りた！");
         triggerStage2();
@@ -449,7 +450,161 @@
         } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
           event.state = "idle";
           event.timer = 0;
+
         }
+        triggerStage2();
+      };
+
+      // ステージ2の助っ人出現を時間経過で制御
+      const updateStage2Assist = (dt) => {
+        if (stage !== 2 || gameOver || bossDefeated) return;
+        const event = stage2AssistEvent;
+        event.timer += dt;
+
+        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
+          event.state = "idle";
+          event.timer = 0;
+          if (!getActorById(event.actorId)) {
+            // 上位キャラクターを初登場させる
+            actors.push({
+              id: event.actorId,
+              name: "上級執行官ツヴァイ",
+              rank: 6,
+              type: "character",
+              color: "#ffb5ff",
+              x: bossZoneX - 80,
+              y: groundY - 48,
+              vx: 0,
+              vy: 0,
+              speed: 200,
+              possessable: false,
+              downed: false,
+              talk: ["ボスの警護は任せろ……油断はしない。"],
+            });
+            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
+          }
+        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
+          event.state = "opening";
+          event.timer = 0;
+          const elite = getActorById(event.actorId);
+          if (elite) {
+            elite.possessable = true;
+            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
+          }
+        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
+          const elite = getActorById(event.actorId);
+          if (!event.heroPossessed) {
+            event.state = "cooldown";
+            event.timer = 0;
+            if (elite) {
+              elite.possessable = false;
+            }
+            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
+          }
+        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
+          event.state = "idle";
+          event.timer = 0;
+        }
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
+      };
+
+      // ステージ2の助っ人出現を時間経過で制御
+      const updateStage2Assist = (dt) => {
+        if (stage !== 2 || gameOver || bossDefeated) return;
+        const event = stage2AssistEvent;
+        event.timer += dt;
+
+        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
+          event.state = "idle";
+          event.timer = 0;
+          if (!getActorById(event.actorId)) {
+            // 上位キャラクターを初登場させる
+            actors.push({
+              id: event.actorId,
+              name: "上級執行官ツヴァイ",
+              rank: 6,
+              type: "character",
+              color: "#ffb5ff",
+              x: bossZoneX - 80,
+              y: groundY - 48,
+              vx: 0,
+              vy: 0,
+              speed: 200,
+              possessable: false,
+              downed: false,
+              talk: ["ボスの警護は任せろ……油断はしない。"],
+            });
+            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
+          }
+        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
+          event.state = "opening";
+          event.timer = 0;
+          const elite = getActorById(event.actorId);
+          if (elite) {
+            elite.possessable = true;
+            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
+          }
+        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
+          const elite = getActorById(event.actorId);
+          if (!event.heroPossessed) {
+            event.state = "cooldown";
+            event.timer = 0;
+            if (elite) {
+              elite.possessable = false;
+            }
+            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
+          }
+        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
+          event.state = "idle";
+          event.timer = 0;
+        }
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
       };
 
       // ボス撃破処理をまとめる
@@ -776,26 +931,14 @@
         poleGrad.addColorStop(0, "rgba(90, 200, 255, 0.95)");
         poleGrad.addColorStop(1, "rgba(0, 80, 200, 0.85)");
         ctx.fillStyle = poleGrad;
-        drawRoundedRectPath(
-          ctx,
-          -pole.radius,
-          -pole.height,
-          pole.radius * 2,
-          pole.height,
-          6,
-        );
+
+        ctx.beginPath();
+        ctx.roundRect(-pole.radius, -pole.height, pole.radius * 2, pole.height, 6);
         ctx.fill();
         ctx.strokeStyle = "rgba(210, 240, 255, 0.85)";
         ctx.lineWidth = 2;
-        drawRoundedRectPath(
-          ctx,
-          -pole.radius,
-          -pole.height,
-          pole.radius * 2,
-          pole.height,
-          6,
-        );
-        ctx.stroke();
+        ctx.strokeRect(-pole.radius, -pole.height, pole.radius * 2, pole.height);
+
         ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
         ctx.font = "14px 'BIZ UDPGothic', sans-serif";
         ctx.textAlign = "center";
