@@ -235,6 +235,22 @@
         actor.vy = 0;
       };
 
+      const drawRoundedRectPath = (ctx, x, y, w, h, radius) => {
+        // 丸角矩形をCanvas互換で描画するヘルパー
+        const r = Math.max(0, Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      };
+
       const triggerGameOver = (reason) => {
         if (gameOver) return;
         gameOver = true;
@@ -367,7 +383,6 @@
         if (controlMode !== "character") return;
         const host = currentHost;
         if (!host || host.type !== "character") return;
-
         const pole = stage1GoalPole;
         const poleTouchX = pole.x - pole.radius;
         if (host.x + 18 < poleTouchX) return;
@@ -380,6 +395,7 @@
           host.x = Math.min(host.x, poleTouchX - 18);
           resetVelocity(host);
           return;
+
         }
         pushLog("検問ポールが位階1を認証。通行許可が下りた！");
         triggerStage2();
@@ -557,6 +573,22 @@
           event.state = "idle";
           event.timer = 0;
         }
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
       };
 
       // ボス撃破処理をまとめる
@@ -899,12 +931,14 @@
         poleGrad.addColorStop(0, "rgba(90, 200, 255, 0.95)");
         poleGrad.addColorStop(1, "rgba(0, 80, 200, 0.85)");
         ctx.fillStyle = poleGrad;
+
         ctx.beginPath();
         ctx.roundRect(-pole.radius, -pole.height, pole.radius * 2, pole.height, 6);
         ctx.fill();
         ctx.strokeStyle = "rgba(210, 240, 255, 0.85)";
         ctx.lineWidth = 2;
         ctx.strokeRect(-pole.radius, -pole.height, pole.radius * 2, pole.height);
+
         ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
         ctx.font = "14px 'BIZ UDPGothic', sans-serif";
         ctx.textAlign = "center";
@@ -921,12 +955,12 @@
             grad.addColorStop(0, "rgba(255,120,255,0.85)");
             grad.addColorStop(1, actor.color);
             ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.roundRect(-36, -160, 72, 160, 18);
+            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
             ctx.fill();
             ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
             ctx.lineWidth = 3;
-            ctx.strokeRect(-36, -160, 72, 160);
+            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
+            ctx.stroke();
           } else if (actor.type === "computer") {
             ctx.fillStyle = actor.color;
             ctx.fillRect(-20, -40, 40, 40);
@@ -940,8 +974,7 @@
             ctx.fillRect(-24, -6, 48, 10);
           } else {
             ctx.fillStyle = actor.color;
-            ctx.beginPath();
-            ctx.roundRect(-18, -42, 36, 48, 8);
+            drawRoundedRectPath(ctx, -18, -42, 36, 48, 8);
             ctx.fill();
             ctx.fillStyle = "rgba(10, 18, 28, 0.8)";
             ctx.fillRect(-14, -32, 28, 18);
