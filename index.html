@@ -200,6 +200,12 @@
         speed: 280,
       };
       const stageExitX = 1480;
+      const stage1GoalPole = {
+        x: stageExitX + 24,
+        baseY: groundY,
+        height: 152,
+        radius: 8,
+      }; // ステージ1ゴール用のポール
       const bossZoneX = 1420;
       let stage = 1;
       let stageTitle = "ステージ1 // 管制エリア";
@@ -208,6 +214,7 @@
       let stage2SetupDone = false;
       let controlMode = "spirit"; // character or spirit or computer
       let currentHost = actors[0];
+      let stage1ExitWarningCooldown = 0; // ステージ1出口警告のクールダウン
 
       const keys = new Set();
       const logEl = document.getElementById("log");
@@ -228,12 +235,50 @@
         actor.vy = 0;
       };
 
+      const drawRoundedRectPath = (ctx, x, y, w, h, radius) => {
+        // 丸角矩形をCanvas互換で描画するヘルパー
+        const r = Math.max(0, Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      };
+
       const triggerGameOver = (reason) => {
         if (gameOver) return;
         gameOver = true;
         pushLog(`警戒レベル上昇: ${reason}`);
         actors.forEach((actor) => resetVelocity(actor));
       };
+
+      // ステージ2での助っ人出現を管理
+      const stage2AssistEvent = {
+        // 上位キャラクターのID
+        actorId: "arbiter",
+        // 出現までの待機時間
+        spawnDelay: 12,
+        // 出現後に隙を晒すまでの時間
+        idleDuration: 3,
+        // 憑依できる隙の継続時間
+        openingDuration: 4,
+        // 隙を逃した場合の再チャージ時間
+        cooldownDuration: 6,
+        // 現在の状態
+        state: "waiting",
+        // 状態ごとの経過時間
+        timer: 0,
+        // 憑依に成功したかどうか
+        heroPossessed: false,
+      };
+      // ボス撃破済みかどうかを保持
+      let bossDefeated = false;
 
       const setupStage2Actors = () => {
         if (stage2SetupDone) return;
@@ -276,6 +321,7 @@
             vy: 0,
             speed: 0,
             possessable: false,
+            defeated: false,
             talk: ["この先は誰も通れん。"],
           });
         }
@@ -322,6 +368,11 @@
           gate.permanentUnlock = true;
         }
         setupStage2Actors();
+        // 助っ人イベントをリセット
+        stage2AssistEvent.state = "waiting";
+        stage2AssistEvent.timer = 0;
+        stage2AssistEvent.heroPossessed = false;
+        bossDefeated = false;
         pushLog("ステージ2に突入。ボスが出口を守っている。正面突破は危険だ。");
       };
 
@@ -332,23 +383,104 @@
         if (controlMode !== "character") return;
         const host = currentHost;
         if (!host || host.type !== "character") return;
-        if (host.x <= stageExitX) return;
-        if (host.id === "runner") {
-          triggerStage2();
-        } else {
-          triggerGameOver(`${host.name} が不正侵入として拘束された。位階1で突破する必要がある。`);
+        const pole = stage1GoalPole;
+        const poleTouchX = pole.x - pole.radius;
+        if (host.x + 18 < poleTouchX) return;
+        if (host.rank !== 1) {
+          // 位階1以外で接触した場合は注意喚起して押し戻す
+          if (stage1ExitWarningCooldown <= 0) {
+            pushLog(`${host.name} の位階では検問ポールが反応しない。位階1へ戻ろう。`);
+            stage1ExitWarningCooldown = 2.5;
+          }
+          host.x = Math.min(host.x, poleTouchX - 18);
+          resetVelocity(host);
+          return;
         }
+        pushLog("検問ポールが位階1を認証。通行許可が下りた！");
+        triggerStage2();
+      };
+
+      // ステージ2の助っ人出現を時間経過で制御
+      const updateStage2Assist = (dt) => {
+        if (stage !== 2 || gameOver || bossDefeated) return;
+        const event = stage2AssistEvent;
+        event.timer += dt;
+
+        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
+          event.state = "idle";
+          event.timer = 0;
+          if (!getActorById(event.actorId)) {
+            // 上位キャラクターを初登場させる
+            actors.push({
+              id: event.actorId,
+              name: "上級執行官ツヴァイ",
+              rank: 6,
+              type: "character",
+              color: "#ffb5ff",
+              x: bossZoneX - 80,
+              y: groundY - 48,
+              vx: 0,
+              vy: 0,
+              speed: 200,
+              possessable: false,
+              downed: false,
+              talk: ["ボスの警護は任せろ……油断はしない。"],
+            });
+            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
+          }
+        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
+          event.state = "opening";
+          event.timer = 0;
+          const elite = getActorById(event.actorId);
+          if (elite) {
+            elite.possessable = true;
+            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
+          }
+        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
+          const elite = getActorById(event.actorId);
+          if (!event.heroPossessed) {
+            event.state = "cooldown";
+            event.timer = 0;
+            if (elite) {
+              elite.possessable = false;
+            }
+            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
+          }
+        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
+          event.state = "idle";
+          event.timer = 0;
+        }
+      };
+
+      // ボス撃破処理をまとめる
+      const defeatBoss = (host) => {
+        const boss = getActorById("boss");
+        if (!boss || boss.defeated) return;
+        boss.defeated = true;
+        boss.color = "#5b3070";
+        boss.talk = ["…これ以上は守れぬか。撤退する。"];
+        bossDefeated = true;
+        const door = doors.find((d) => d.id === "labDoor");
+        if (door) {
+          door.open = true;
+        }
+        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
+        stageTitle = "ステージ2 // ボス制圧済";
       };
 
       const checkBossZone = () => {
         if (stage !== 2 || gameOver) return;
         const boss = getActorById("boss");
-        if (!boss) return;
+        if (!boss || boss.defeated) return;
         if (controlMode !== "character") return;
         const host = currentHost;
         if (!host || host.type !== "character") return;
-        if (host.rank > 2) return;
         if (host.x + 18 < boss.x - 32) return;
+        if (host.id === stage2AssistEvent.actorId && stage2AssistEvent.heroPossessed) {
+          defeatBoss(host);
+          return;
+        }
+        if (host.rank > 2) return;
         triggerGameOver(`${boss.name} の一撃で ${host.name} は倒れた。別の手段を探そう。`);
       };
 
@@ -427,6 +559,13 @@
         controlMode = target.type === "computer" ? "computer" : "character";
         pushLog(`${target.name} に憑依した。`);
         resetVelocity(target);
+        if (stage === 2 && target.id === stage2AssistEvent.actorId) {
+          // 隙の最中に憑依できたので成功扱いにする
+          stage2AssistEvent.heroPossessed = true;
+          stage2AssistEvent.state = "ally";
+          target.possessable = false;
+          pushLog("上位の身体を掌握した。ボスへ向かって突破を狙おう！");
+        }
       };
 
       const findNearestPossessTarget = () => {
@@ -570,6 +709,7 @@
         drawBackground();
         drawPlatforms();
         drawDoors();
+        drawStage1Goal();
         drawBarriers();
         drawActors();
         drawSpirit();
@@ -627,6 +767,42 @@
         });
       };
 
+      const drawStage1Goal = () => {
+        if (stage !== 1) return;
+        const pole = stage1GoalPole;
+        ctx.save();
+        ctx.translate(pole.x, pole.baseY);
+        const poleGrad = ctx.createLinearGradient(0, -pole.height, 0, 0);
+        poleGrad.addColorStop(0, "rgba(90, 200, 255, 0.95)");
+        poleGrad.addColorStop(1, "rgba(0, 80, 200, 0.85)");
+        ctx.fillStyle = poleGrad;
+        drawRoundedRectPath(
+          ctx,
+          -pole.radius,
+          -pole.height,
+          pole.radius * 2,
+          pole.height,
+          6,
+        );
+        ctx.fill();
+        ctx.strokeStyle = "rgba(210, 240, 255, 0.85)";
+        ctx.lineWidth = 2;
+        drawRoundedRectPath(
+          ctx,
+          -pole.radius,
+          -pole.height,
+          pole.radius * 2,
+          pole.height,
+          6,
+        );
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.font = "14px 'BIZ UDPGothic', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("検問ポール", 0, -pole.height - 12);
+        ctx.restore();
+      };
+
       const drawActors = () => {
         actors.forEach((actor) => {
           ctx.save();
@@ -636,12 +812,12 @@
             grad.addColorStop(0, "rgba(255,120,255,0.85)");
             grad.addColorStop(1, actor.color);
             ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.roundRect(-36, -160, 72, 160, 18);
+            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
             ctx.fill();
             ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
             ctx.lineWidth = 3;
-            ctx.strokeRect(-36, -160, 72, 160);
+            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
+            ctx.stroke();
           } else if (actor.type === "computer") {
             ctx.fillStyle = actor.color;
             ctx.fillRect(-20, -40, 40, 40);
@@ -655,8 +831,7 @@
             ctx.fillRect(-24, -6, 48, 10);
           } else {
             ctx.fillStyle = actor.color;
-            ctx.beginPath();
-            ctx.roundRect(-18, -42, 36, 48, 8);
+            drawRoundedRectPath(ctx, -18, -42, 36, 48, 8);
             ctx.fill();
             ctx.fillStyle = "rgba(10, 18, 28, 0.8)";
             ctx.fillRect(-14, -32, 28, 18);
@@ -670,7 +845,8 @@
           } else if (actor.type === "computer") {
             label += " / 端末";
           } else if (actor.type === "boss") {
-            label += " / ボス";
+            // ボス撃破後は制圧済みの表示を添える
+            label += actor.defeated ? " / ボス (制圧済)" : " / ボス";
           }
           const labelY = actor.type === "boss" ? -168 : actor.downed ? -28 : -52;
           ctx.fillText(label, 0, labelY);
@@ -784,12 +960,17 @@
             updateSpirit(dt);
           }
 
+          updateStage2Assist(dt);
           checkStageExit();
           checkBossZone();
         }
 
         if (stageBannerTimer > 0) {
           stageBannerTimer = Math.max(0, stageBannerTimer - dt);
+        }
+        if (stage1ExitWarningCooldown > 0) {
+          // 警告ログの連打を防ぐためのクールダウン
+          stage1ExitWarningCooldown = Math.max(0, stage1ExitWarningCooldown - dt);
         }
 
         draw();
