@@ -1,1127 +1,638 @@
-<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>lelics // サイドビュー憑依アクション試作</title>
-    <style>
-      :root {
-        color-scheme: dark;
-      }
-      body {
-        margin: 0;
-        background: radial-gradient(circle at 20% 20%, #0f2244 0%, #020610 60%);
-        font-family: "BIZ UDPGothic", "Yu Gothic", sans-serif;
-        color: #e6f2ff;
-        overflow: hidden;
-      }
-      canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-      }
-      .hud {
-        position: fixed;
-        left: 1.2rem;
-        top: 1.2rem;
-        max-width: 26rem;
-        font-size: 0.85rem;
-        line-height: 1.5;
-        letter-spacing: 0.04em;
-        background: rgba(0, 34, 68, 0.6);
-        padding: 1rem 1.2rem;
-        border: 1px solid rgba(0, 123, 255, 0.4);
-        border-radius: 0.75rem;
-        box-shadow: 0 0 24px rgba(0, 155, 255, 0.35);
-        backdrop-filter: blur(4px);
-      }
-      .hud strong {
-        color: #4dc0ff;
-      }
-      .log {
-        position: fixed;
-        left: 1.2rem;
-        bottom: 1.2rem;
-        width: 26rem;
-        height: 8rem;
-        background: rgba(0, 24, 52, 0.7);
-        border: 1px solid rgba(0, 123, 255, 0.35);
-        border-radius: 0.75rem;
-        padding: 0.6rem 1rem;
-        box-sizing: border-box;
-        font-size: 0.8rem;
-        line-height: 1.4;
-        overflow-y: auto;
-        box-shadow: inset 0 0 12px rgba(0, 100, 200, 0.4);
-      }
-    </style>
-  </head>
-  <body>
-    <canvas id="game"></canvas>
-    <div class="hud">
-      <strong>操作説明</strong><br />
-      ←→: 移動 / Space: ジャンプ (キャラクター時)<br />
-      Z: エーテルフォーム化 (宿主離脱)<br />
-      X: 近くの対象に憑依<br />
-      C: 会話・端末操作 (対象によって挙動変化)<br />
-      高位キャラほど封鎖区画を抜けられる。端末は扉を解除可能。
-    </div>
-    <div class="log" id="log"></div>
-    <script>
-      // ===== 基本設定 =====
-      const canvas = document.getElementById("game");
-      const ctx = canvas.getContext("2d");
-      let width = (canvas.width = window.innerWidth);
-      let height = (canvas.height = window.innerHeight);
-
-      // ===== 世界定義 =====
-      const gravity = 1400; // px/s^2
-      const groundY = 360;
-      const floorHeight = 64;
-
-      // プラットフォーム定義
-      const platforms = [
-        { x: 0, y: groundY, w: 2000, h: floorHeight },
-        { x: 420, y: groundY - 96, w: 160, h: 16 },
-        { x: 860, y: groundY - 140, w: 220, h: 16 },
-      ];
-
-      // バリア（地位による通行制限）
-      const barriers = [
-        {
-          id: "mainGate",
-          x: 760,
-          w: 32,
-          height: 120,
-          requiredRank: 3,
-          enabled: true,
-          doorLink: "labDoor",
-          unlockByRank: true, // 高位キャラが接触すると自動解除
-          permanentUnlock: false,
-        },
-      ];
-
-      // 扉（端末で制御）
-      const doors = [
-        {
-          id: "labDoor",
-          x: 1040,
-          y: groundY - 140,
-          w: 24,
-          h: 140,
-          open: false,
-        },
-      ];
-
-      // キャラクターおよび端末
-      const actors = [
-        {
-          id: "runner",
-          name: "ランナー",
-          rank: 1,
-          type: "character",
-          color: "#58c4ff",
-          x: 120,
-          y: groundY - 48,
-          vx: 0,
-          vy: 0,
-          speed: 220,
-          talk: ["ここから先は誰かに助けてもらわないと…"],
-        },
-        {
-          id: "engineer",
-          name: "エンジニア",
-          rank: 2,
-          type: "character",
-          color: "#6cf0b7",
-          x: 480,
-          y: groundY - 144,
-          vx: 0,
-          vy: 0,
-          speed: 200,
-          talk: [
-            "システムにアクセスするには守衛の許可が必要だよ。出口を抜けるときはランナーの姿に戻っておくのを忘れないで。",
-          ],
-        },
-        {
-          id: "guard",
-          name: "オーバーウォッチ",
-          rank: 3,
-          type: "character",
-          color: "#ff9e59",
-          x: 720,
-          y: groundY - 48,
-          vx: 0,
-          vy: 0,
-          speed: 180,
-          talk: [
-            "この区画は高位認証者のみ通行可だ。だが出口を抜ける資格は位階1だけだ。忘れるな。",
-          ],
-        },
-        {
-          id: "director",
-          name: "セキュリティ主任",
-          rank: 4,
-          type: "character",
-          color: "#ffe97a",
-          x: 980,
-          y: groundY - 48,
-          vx: 0,
-          vy: 0,
-          speed: 190,
-          talk: [
-            "端末は位階4だけが直接アクセスできる。出口ゲートは位階1が通過するよう設計されている。誰かを戻しておけ。",
-          ],
-        },
-        {
-          id: "terminal",
-          name: "セキュリティ端末",
-          rank: 4,
-          type: "computer",
-          color: "#4dd5ff",
-          x: 1180,
-          y: groundY - 48,
-          speed: 0,
-          talk: ["アクセスキー入力待機中。Cキーで扉を解除可能。"],
-        },
-      ];
-
-      // 初期演出用：黒い影（エーテル体）が最初の宿主へ向かう
-      const initialPossession = {
-        active: true,
-        duration: 1.1,
-        elapsed: 0,
-        originX: actors[0].x - 180,
-        originY: actors[0].y - 160,
-      };
-      const spirit = {
-        x: initialPossession.originX,
-        y: initialPossession.originY,
-        speed: 280,
-      };
-      const stageExitX = 1480;
-      const stage1GoalPole = {
-        x: stageExitX + 24,
-        baseY: groundY,
-        height: 152,
-        radius: 8,
-      }; // ステージ1ゴール用のポール
-      const bossZoneX = 1420;
-      let stage = 1;
-      let stageTitle = "ステージ1 // 管制エリア";
-      let stageBannerTimer = 0;
-      let gameOver = false;
-      let stage2SetupDone = false;
-      let controlMode = "spirit"; // character or spirit or computer
-      let currentHost = actors[0];
-      let stage1ExitWarningCooldown = 0; // ステージ1出口警告のクールダウン
-
-      const keys = new Set();
-      const logEl = document.getElementById("log");
-      const logs = [];
-
-      // ===== Utility =====
-      const pushLog = (text) => {
-        logs.push(`[${new Date().toLocaleTimeString()}] ${text}`);
-        while (logs.length > 6) logs.shift();
-        logEl.innerHTML = logs.map((l) => `<div>${l}</div>`).join("");
-        logEl.scrollTop = logEl.scrollHeight;
-      };
-
-      const getActorById = (id) => actors.find((a) => a.id === id);
-
-      const resetVelocity = (actor) => {
-        actor.vx = 0;
-        actor.vy = 0;
-      };
-
-      const drawRoundedRectPath = (ctx, x, y, w, h, radius) => {
-        // 丸角矩形をCanvas互換で描画するヘルパー
-        const r = Math.max(0, Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2));
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-        ctx.lineTo(x + r, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.closePath();
-      };
-
-      const triggerGameOver = (reason) => {
-        if (gameOver) return;
-        gameOver = true;
-        pushLog(`警戒レベル上昇: ${reason}`);
-        actors.forEach((actor) => resetVelocity(actor));
-      };
-
-      // ステージ2での助っ人出現を管理
-      const stage2AssistEvent = {
-        // 上位キャラクターのID
-        actorId: "arbiter",
-        // 出現までの待機時間
-        spawnDelay: 12,
-        // 出現後に隙を晒すまでの時間
-        idleDuration: 3,
-        // 憑依できる隙の継続時間
-        openingDuration: 4,
-        // 隙を逃した場合の再チャージ時間
-        cooldownDuration: 6,
-        // 現在の状態
-        state: "waiting",
-        // 状態ごとの経過時間
-        timer: 0,
-        // 憑依に成功したかどうか
-        heroPossessed: false,
-      };
-      // ボス撃破済みかどうかを保持
-      let bossDefeated = false;
-
-      const setupStage2Actors = () => {
-        if (stage2SetupDone) return;
-        const baseY = groundY - 48;
-        const guardConfigs = [
-          { id: "bodyguard_alpha", name: "ボディガードA", x: 1230 },
-          { id: "bodyguard_beta", name: "ボディガードB", x: 1280 },
-          { id: "bodyguard_gamma", name: "ボディガードC", x: 1330 },
-        ];
-        guardConfigs.forEach((cfg) => {
-          if (!getActorById(cfg.id)) {
-            actors.push({
-              id: cfg.id,
-              name: cfg.name,
-              rank: 2,
-              type: "character",
-              color: "#8fc5ff",
-              x: cfg.x,
-              y: baseY,
-              vx: 0,
-              vy: 0,
-              speed: 210,
-              downed: false,
-              possessable: true,
-              talk: ["俺たちが囮になる…だが相手は桁違いだ。"],
-            });
-          }
-        });
-
-        if (!getActorById("boss")) {
-          actors.push({
-            id: "boss",
-            name: "ヴォイドセンチネル",
-            rank: 7,
-            type: "boss",
-            color: "#be4dff",
-            x: bossZoneX,
-            y: groundY - 48,
-            vx: 0,
-            vy: 0,
-            speed: 0,
-            possessable: false,
-            defeated: false,
-            talk: ["この先は誰も通れん。"],
-          });
-        }
-
-        stage2SetupDone = true;
-        pushLog("位階2のボディーガードが3名合流。しかしボスの一撃は致命的だ。");
-      };
-
-      const triggerStage2 = () => {
-        if (stage >= 2) return;
-        stage = 2;
-        stageTitle = "ステージ2 // 初交戦セクション";
-        stageBannerTimer = 3.2;
-        const runner = getActorById("runner");
-        if (runner) {
-          runner.x = 240;
-          runner.y = groundY - 48;
-          resetVelocity(runner);
-          currentHost = runner;
-          controlMode = "character";
-        }
-        const engineer = getActorById("engineer");
-        if (engineer) engineer.x = 120;
-        const guard = getActorById("guard");
-        if (guard) guard.x = 460;
-        const director = getActorById("director");
-        if (director) {
-          director.x = 720;
-          director.talk = ["次のセクションに入るには更なる鍵が必要だ。注意して進め。"];
-        }
-        const terminal = getActorById("terminal");
-        if (terminal) {
-          terminal.x = 1080;
-          terminal.talk = ["研究ブロック制御端末。Cキーで次扉を解除。"];
-        }
-        const door = doors.find((d) => d.id === "labDoor");
-        if (door) {
-          door.x = 1180;
-          door.open = false;
-        }
-        const gate = barriers.find((b) => b.id === "mainGate");
-        if (gate) {
-          gate.enabled = false;
-          gate.permanentUnlock = true;
-        }
-        setupStage2Actors();
-        // 助っ人イベントをリセット
-        stage2AssistEvent.state = "waiting";
-        stage2AssistEvent.timer = 0;
-        stage2AssistEvent.heroPossessed = false;
-        bossDefeated = false;
-        pushLog("ステージ2に突入。ボスが出口を守っている。正面突破は危険だ。");
-      };
-
-      const checkStageExit = () => {
-        if (stage !== 1 || gameOver) return;
-        const door = doors.find((d) => d.id === "labDoor");
-        if (!door?.open) return; // 扉解放前は進めない
-        if (controlMode !== "character") return;
-        const host = currentHost;
-        if (!host || host.type !== "character") return;
-        const pole = stage1GoalPole;
-        const poleTouchX = pole.x - pole.radius;
-        if (host.x + 18 < poleTouchX) return;
-        if (host.rank !== 1) {
-          // 位階1以外で接触した場合は注意喚起して押し戻す
-          if (stage1ExitWarningCooldown <= 0) {
-            pushLog(`${host.name} の位階では検問ポールが反応しない。位階1へ戻ろう。`);
-            stage1ExitWarningCooldown = 2.5;
-          }
-          host.x = Math.min(host.x, poleTouchX - 18);
-          resetVelocity(host);
-          return;
-
-        }
-        pushLog("検問ポールが位階1を認証。通行許可が下りた！");
-        triggerStage2();
-      };
-
-      // ステージ2の助っ人出現を時間経過で制御
-      const updateStage2Assist = (dt) => {
-        if (stage !== 2 || gameOver || bossDefeated) return;
-        const event = stage2AssistEvent;
-        event.timer += dt;
-
-        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
-          event.state = "idle";
-          event.timer = 0;
-          if (!getActorById(event.actorId)) {
-            // 上位キャラクターを初登場させる
-            actors.push({
-              id: event.actorId,
-              name: "上級執行官ツヴァイ",
-              rank: 6,
-              type: "character",
-              color: "#ffb5ff",
-              x: bossZoneX - 80,
-              y: groundY - 48,
-              vx: 0,
-              vy: 0,
-              speed: 200,
-              possessable: false,
-              downed: false,
-              talk: ["ボスの警護は任せろ……油断はしない。"],
-            });
-            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
-          }
-        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
-          event.state = "opening";
-          event.timer = 0;
-          const elite = getActorById(event.actorId);
-          if (elite) {
-            elite.possessable = true;
-            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
-          }
-        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
-          const elite = getActorById(event.actorId);
-          if (!event.heroPossessed) {
-            event.state = "cooldown";
-            event.timer = 0;
-            if (elite) {
-              elite.possessable = false;
-            }
-            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
-          }
-        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
-          event.state = "idle";
-          event.timer = 0;
-
-        }
-        triggerStage2();
-      };
-
-      // ステージ2の助っ人出現を時間経過で制御
-      const updateStage2Assist = (dt) => {
-        if (stage !== 2 || gameOver || bossDefeated) return;
-        const event = stage2AssistEvent;
-        event.timer += dt;
-
-        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
-          event.state = "idle";
-          event.timer = 0;
-          if (!getActorById(event.actorId)) {
-            // 上位キャラクターを初登場させる
-            actors.push({
-              id: event.actorId,
-              name: "上級執行官ツヴァイ",
-              rank: 6,
-              type: "character",
-              color: "#ffb5ff",
-              x: bossZoneX - 80,
-              y: groundY - 48,
-              vx: 0,
-              vy: 0,
-              speed: 200,
-              possessable: false,
-              downed: false,
-              talk: ["ボスの警護は任せろ……油断はしない。"],
-            });
-            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
-          }
-        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
-          event.state = "opening";
-          event.timer = 0;
-          const elite = getActorById(event.actorId);
-          if (elite) {
-            elite.possessable = true;
-            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
-          }
-        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
-          const elite = getActorById(event.actorId);
-          if (!event.heroPossessed) {
-            event.state = "cooldown";
-            event.timer = 0;
-            if (elite) {
-              elite.possessable = false;
-            }
-            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
-          }
-        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
-          event.state = "idle";
-          event.timer = 0;
-        }
-      };
-
-      // ボス撃破処理をまとめる
-      const defeatBoss = (host) => {
-        const boss = getActorById("boss");
-        if (!boss || boss.defeated) return;
-        boss.defeated = true;
-        boss.color = "#5b3070";
-        boss.talk = ["…これ以上は守れぬか。撤退する。"];
-        bossDefeated = true;
-        const door = doors.find((d) => d.id === "labDoor");
-        if (door) {
-          door.open = true;
-        }
-        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
-        stageTitle = "ステージ2 // ボス制圧済";
-      };
-
-      // ステージ2の助っ人出現を時間経過で制御
-      const updateStage2Assist = (dt) => {
-        if (stage !== 2 || gameOver || bossDefeated) return;
-        const event = stage2AssistEvent;
-        event.timer += dt;
-
-        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
-          event.state = "idle";
-          event.timer = 0;
-          if (!getActorById(event.actorId)) {
-            // 上位キャラクターを初登場させる
-            actors.push({
-              id: event.actorId,
-              name: "上級執行官ツヴァイ",
-              rank: 6,
-              type: "character",
-              color: "#ffb5ff",
-              x: bossZoneX - 80,
-              y: groundY - 48,
-              vx: 0,
-              vy: 0,
-              speed: 200,
-              possessable: false,
-              downed: false,
-              talk: ["ボスの警護は任せろ……油断はしない。"],
-            });
-            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
-          }
-        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
-          event.state = "opening";
-          event.timer = 0;
-          const elite = getActorById(event.actorId);
-          if (elite) {
-            elite.possessable = true;
-            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
-          }
-        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
-          const elite = getActorById(event.actorId);
-          if (!event.heroPossessed) {
-            event.state = "cooldown";
-            event.timer = 0;
-            if (elite) {
-              elite.possessable = false;
-            }
-            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
-          }
-        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
-          event.state = "idle";
-          event.timer = 0;
-        }
-      };
-
-      // ボス撃破処理をまとめる
-      const defeatBoss = (host) => {
-        const boss = getActorById("boss");
-        if (!boss || boss.defeated) return;
-        boss.defeated = true;
-        boss.color = "#5b3070";
-        boss.talk = ["…これ以上は守れぬか。撤退する。"];
-        bossDefeated = true;
-        const door = doors.find((d) => d.id === "labDoor");
-        if (door) {
-          door.open = true;
-        }
-        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
-        stageTitle = "ステージ2 // ボス制圧済";
-      };
-
-      // ボス撃破処理をまとめる
-      const defeatBoss = (host) => {
-        const boss = getActorById("boss");
-        if (!boss || boss.defeated) return;
-        boss.defeated = true;
-        boss.color = "#5b3070";
-        boss.talk = ["…これ以上は守れぬか。撤退する。"];
-        bossDefeated = true;
-        const door = doors.find((d) => d.id === "labDoor");
-        if (door) {
-          door.open = true;
-        }
-        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
-        stageTitle = "ステージ2 // ボス制圧済";
-      };
-
-      // ボス撃破処理をまとめる
-      const defeatBoss = (host) => {
-        const boss = getActorById("boss");
-        if (!boss || boss.defeated) return;
-        boss.defeated = true;
-        boss.color = "#5b3070";
-        boss.talk = ["…これ以上は守れぬか。撤退する。"];
-        bossDefeated = true;
-        const door = doors.find((d) => d.id === "labDoor");
-        if (door) {
-          door.open = true;
-        }
-        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
-        stageTitle = "ステージ2 // ボス制圧済";
-      };
-
-      const checkBossZone = () => {
-        if (stage !== 2 || gameOver) return;
-        const boss = getActorById("boss");
-        if (!boss || boss.defeated) return;
-        if (controlMode !== "character") return;
-        const host = currentHost;
-        if (!host || host.type !== "character") return;
-        if (host.x + 18 < boss.x - 32) return;
-        if (host.id === stage2AssistEvent.actorId && stage2AssistEvent.heroPossessed) {
-          defeatBoss(host);
-          return;
-        }
-        if (host.rank > 2) return;
-        triggerGameOver(`${boss.name} の一撃で ${host.name} は倒れた。別の手段を探そう。`);
-      };
-
-      // ===== 入力処理 =====
-      window.addEventListener("keydown", (e) => {
-        if (e.repeat || gameOver) return;
-        keys.add(e.code);
-
-        if (initialPossession.active) return; // 演出中は操作無効
-
-        if (e.code === "KeyZ") {
-          // 宿主から離脱
-          if (controlMode !== "spirit") {
-            controlMode = "spirit";
-            spirit.x = currentHost.x;
-            spirit.y = currentHost.y - 80;
-            pushLog(`${currentHost.name} から離脱した。`);
-            resetVelocity(currentHost);
-          }
-        }
-
-        if (e.code === "KeyX") {
-          // 憑依を試みる
-          attemptPossession();
-        }
-
-        if (e.code === "KeyC") {
-          // 会話や操作
-          interact();
-        }
-      });
-
-      window.addEventListener("keyup", (e) => {
-        keys.delete(e.code);
-      });
-
-      window.addEventListener("resize", () => {
-        width = canvas.width = window.innerWidth;
-        height = canvas.height = window.innerHeight;
-      });
-
-      // ===== 憑依ロジック =====
-      const attemptPossession = () => {
-        if (initialPossession.active || gameOver) return; // 初期憑依演出が終わるまで待つ
-        if (controlMode === "character" && currentHost.type === "computer") {
-          // 端末から離脱してエーテル化
-          controlMode = "spirit";
-          spirit.x = currentHost.x + 20;
-          spirit.y = currentHost.y - 40;
-          pushLog("端末から離脱した。");
-          return;
-        }
-
-        const target = findNearestPossessTarget();
-        if (!target) {
-          pushLog("近くに憑依できる対象がない。");
-          return;
-        }
-        if (target.possessable === false || target.downed) {
-          pushLog(`${target.name} には憑依できない。`);
-          return;
-        }
-        // 端末にアクセスする際は位階チェックを要求
-        if (target.type === "computer") {
-          const hostRank =
-            controlMode === "character" && currentHost?.rank
-              ? currentHost.rank
-              : 0;
-          if (hostRank < 4) {
-            pushLog("位階4以上の器でないとセキュリティ端末に入れない。");
-            return;
-          }
-        }
-
-        currentHost = target;
-        controlMode = target.type === "computer" ? "computer" : "character";
-        pushLog(`${target.name} に憑依した。`);
-        resetVelocity(target);
-        if (stage === 2 && target.id === stage2AssistEvent.actorId) {
-          // 隙の最中に憑依できたので成功扱いにする
-          stage2AssistEvent.heroPossessed = true;
-          stage2AssistEvent.state = "ally";
-          target.possessable = false;
-          pushLog("上位の身体を掌握した。ボスへ向かって突破を狙おう！");
-        }
-      };
-
-      const findNearestPossessTarget = () => {
-        const range = 80;
-        let best = null;
-        let bestDist = Infinity;
-        const pivot = controlMode === "spirit" ? spirit : currentHost;
-        actors.forEach((actor) => {
-          if (actor === currentHost) return;
-          if (actor.possessable === false || actor.downed) return;
-          const dx = actor.x - pivot.x;
-          const dy = actor.y - pivot.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist < range && dist < bestDist) {
-            best = actor;
-            bestDist = dist;
-          }
-        });
-        return best;
-      };
-
-      const interact = () => {
-        if (initialPossession.active) {
-          pushLog("まだ宿主へ漂流中だ。");
-          return;
-        }
-        if (gameOver) {
-          pushLog("拘束されているため操作できない。");
-          return;
-        }
-        if (controlMode === "character") {
-          pushLog(currentHost.talk?.[0] ?? "…");
-        } else if (controlMode === "computer") {
-          const door = doors.find((d) => d.id === "labDoor");
-          if (door) {
-            door.open = !door.open;
-            pushLog(`端末操作: 研究区画の扉を${door.open ? "開放" : "閉鎖"}した。`);
-            // バリアも連動で解除
-            const gate = barriers.find((b) => b.id === "mainGate");
-            if (gate && !gate.permanentUnlock) {
-              gate.enabled = !door.open;
-            }
-          }
-        } else if (controlMode === "spirit") {
-          pushLog("エーテル状態のため会話できない。");
-        }
-      };
-
-      // ===== 物理計算 =====
-      const updateCharacter = (actor, dt) => {
-        actor.vx = 0;
-        if (keys.has("ArrowLeft")) actor.vx -= actor.speed;
-        if (keys.has("ArrowRight")) actor.vx += actor.speed;
-
-        if (keys.has("Space") && Math.abs(actor.vy) < 1 && isOnGround(actor)) {
-          actor.vy = -520; // ジャンプ力
-        }
-
-        actor.vy += gravity * dt;
-
-        actor.x += actor.vx * dt;
-        actor.y += actor.vy * dt;
-
-        resolvePlatformCollision(actor);
-        resolveBarrierCollision(actor);
-      };
-
-      const updateSpirit = (dt) => {
-        if (initialPossession.active) return; // 演出中は自動移動に任せる
-        const speed = spirit.speed;
-        if (keys.has("ArrowLeft")) spirit.x -= speed * dt;
-        if (keys.has("ArrowRight")) spirit.x += speed * dt;
-        if (keys.has("ArrowUp")) spirit.y -= speed * dt;
-        if (keys.has("ArrowDown")) spirit.y += speed * dt;
-
-        spirit.x = Math.max(40, Math.min(1400, spirit.x));
-        spirit.y = Math.max(40, Math.min(groundY - 100, spirit.y));
-      };
-
-      const isOnGround = (actor) => {
-        return actor.y >= groundY - 48 && actor.y <= groundY - 40;
-      };
-
-      const resolvePlatformCollision = (actor) => {
-        // 床衝突処理（単純なAABB）
-        platforms.forEach((p) => {
-          if (
-            actor.x + 24 > p.x &&
-            actor.x - 24 < p.x + p.w &&
-            actor.y + 48 > p.y - p.h &&
-            actor.y + 48 < p.y + 16 &&
-            actor.vy >= 0
-          ) {
-            actor.y = p.y - 48;
-            actor.vy = 0;
-          }
-        });
-        if (actor.y > groundY - 48) {
-          actor.y = groundY - 48;
-          actor.vy = 0;
-        }
-      };
-
-      const resolveBarrierCollision = (actor) => {
-        barriers.forEach((b) => {
-          if (!b.enabled) return;
-          if (actor.rank >= b.requiredRank) {
-            if (b.unlockByRank && !b.permanentUnlock) {
-              b.enabled = false;
-              b.permanentUnlock = true;
-              pushLog(`${actor.name} の権限で関門「${b.id}」が解除された。`);
-            }
-            return;
-          }
-          const withinY = actor.y + 40 > groundY - b.height && actor.y < groundY + 20;
-          if (!withinY) return;
-          if (actor.x + 20 > b.x && actor.x < b.x + b.w) {
-            if (actor.x < b.x) {
-              actor.x = b.x - 20;
-            } else {
-              actor.x = b.x + b.w + 20;
-            }
-          }
-        });
-      };
-
-      // ===== 描画処理 =====
-      const draw = () => {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const sky = ctx.createLinearGradient(0, 0, 0, height);
-        if (stage === 1) {
-          sky.addColorStop(0, "#011029");
-          sky.addColorStop(1, "#04224d");
-        } else {
-          sky.addColorStop(0, "#031124");
-          sky.addColorStop(1, "#05375a");
-        }
-        ctx.fillStyle = sky;
-        ctx.fillRect(0, 0, width, height);
-
-        drawBackground();
-        drawPlatforms();
-        drawDoors();
-        drawStage1Goal();
-        drawBarriers();
-        drawActors();
-        drawSpirit();
-        drawStatus();
-        drawOverlays();
-      };
-
-      const drawBackground = () => {
-        // 背景のシティライン
-        ctx.save();
-        ctx.fillStyle = stage === 1 ? "rgba(0, 90, 180, 0.4)" : "rgba(0, 185, 160, 0.45)";
-        [0, 1, 2, 3].forEach((layer) => {
-          const offset = (Date.now() * 0.02 * (layer + 1)) % width;
-          for (let i = -1; i < 8; i++) {
-            const x = i * 220 - offset;
-            const h = 120 + layer * 40;
-            ctx.fillRect(x, groundY - h, 150, h);
-          }
-        });
-        ctx.restore();
-      };
-
-      const drawPlatforms = () => {
-        ctx.fillStyle = stage === 1 ? "#062d57" : "#064766";
-        platforms.forEach((p) => {
-          ctx.fillRect(p.x, p.y - p.h, p.w, p.h);
-          ctx.strokeStyle = stage === 1 ? "rgba(97, 193, 255, 0.4)" : "rgba(90, 255, 220, 0.4)";
-          ctx.strokeRect(p.x, p.y - p.h, p.w, p.h);
-        });
-      };
-
-      const drawBarriers = () => {
-        barriers.forEach((b) => {
-          ctx.save();
-          ctx.globalAlpha = b.enabled ? 0.9 : 0.25;
-          const grad = ctx.createLinearGradient(b.x, 0, b.x + b.w, 0);
-          grad.addColorStop(0, "rgba(0,140,255,0.8)");
-          grad.addColorStop(1, "rgba(0,210,255,0.2)");
-          ctx.fillStyle = grad;
-          ctx.fillRect(b.x, groundY - b.height, b.w, b.height);
-          ctx.restore();
-        });
-      };
-
-      const drawDoors = () => {
-        doors.forEach((d) => {
-          ctx.save();
-          ctx.translate(d.x, d.y);
-          ctx.fillStyle = d.open ? "rgba(80,255,220,0.2)" : "rgba(20,120,255,0.85)";
-          ctx.fillRect(0, 0, d.w, d.h);
-          ctx.strokeStyle = "rgba(150, 255, 255, 0.6)";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(0, 0, d.w, d.h);
-          ctx.restore();
-        });
-      };
-
-      const drawStage1Goal = () => {
-        if (stage !== 1) return;
-        const pole = stage1GoalPole;
-        ctx.save();
-        ctx.translate(pole.x, pole.baseY);
-        const poleGrad = ctx.createLinearGradient(0, -pole.height, 0, 0);
-        poleGrad.addColorStop(0, "rgba(90, 200, 255, 0.95)");
-        poleGrad.addColorStop(1, "rgba(0, 80, 200, 0.85)");
-        ctx.fillStyle = poleGrad;
-
-        ctx.beginPath();
-        ctx.roundRect(-pole.radius, -pole.height, pole.radius * 2, pole.height, 6);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(210, 240, 255, 0.85)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-pole.radius, -pole.height, pole.radius * 2, pole.height);
-
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.font = "14px 'BIZ UDPGothic', sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("検問ポール", 0, -pole.height - 12);
-        ctx.restore();
-      };
-
-      const drawActors = () => {
-        actors.forEach((actor) => {
-          ctx.save();
-          ctx.translate(actor.x, actor.y);
-          if (actor.type === "boss") {
-            const grad = ctx.createLinearGradient(0, -160, 0, 0);
-            grad.addColorStop(0, "rgba(255,120,255,0.85)");
-            grad.addColorStop(1, actor.color);
-            ctx.fillStyle = grad;
-            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
-            ctx.fill();
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
-            ctx.lineWidth = 3;
-            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
-            ctx.stroke();
-          } else if (actor.type === "computer") {
-            ctx.fillStyle = actor.color;
-            ctx.fillRect(-20, -40, 40, 40);
-            ctx.fillStyle = "rgba(0,0,0,0.6)";
-            ctx.fillRect(-16, -36, 32, 22);
-          } else if (actor.downed) {
-            ctx.globalAlpha = 0.45;
-            ctx.fillStyle = actor.color;
-            ctx.fillRect(-32, -8, 64, 16);
-            ctx.fillStyle = "rgba(10, 18, 28, 0.6)";
-            ctx.fillRect(-24, -6, 48, 10);
-          } else {
-            ctx.fillStyle = actor.color;
-            drawRoundedRectPath(ctx, -18, -42, 36, 48, 8);
-            ctx.fill();
-            ctx.fillStyle = "rgba(10, 18, 28, 0.8)";
-            ctx.fillRect(-14, -32, 28, 18);
-          }
-          ctx.fillStyle = "rgba(255,255,255,0.8)";
-          ctx.font = "12px sans-serif";
-          ctx.textAlign = "center";
-          let label = actor.name;
-          if (actor.type === "character") {
-            label += actor.downed ? " (戦闘不能)" : ` / 位階${actor.rank}`;
-          } else if (actor.type === "computer") {
-            label += " / 端末";
-          } else if (actor.type === "boss") {
-            // ボス撃破後は制圧済みの表示を添える
-            label += actor.defeated ? " / ボス (制圧済)" : " / ボス";
-          }
-          const labelY = actor.type === "boss" ? -168 : actor.downed ? -28 : -52;
-          ctx.fillText(label, 0, labelY);
-          ctx.restore();
-        });
-      };
-
-      const drawSpirit = () => {
-        if (controlMode === "spirit" || initialPossession.active) {
-          ctx.save();
-          ctx.translate(spirit.x, spirit.y);
-          const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 28);
-          grad.addColorStop(0, "rgba(10,10,14,0.95)");
-          grad.addColorStop(1, "rgba(10,10,14,0.05)");
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.arc(0, 0, 28, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
-      };
-
-      const drawStatus = () => {
-        ctx.save();
-        ctx.fillStyle = "rgba(0, 25, 60, 0.7)";
-        ctx.fillRect(0, 0, width, 40);
-        ctx.fillStyle = "#8fd6ff";
-        ctx.font = "16px 'BIZ UDPGothic', sans-serif";
-        const modeLabel =
-          controlMode === "spirit"
-            ? "エーテルフォーム"
-            : controlMode === "computer"
-            ? `${currentHost.name} (端末)`
-            : `${currentHost.name}`;
-        ctx.fillText(`現在の器: ${modeLabel}`, 20, 26);
-        ctx.textAlign = "right";
-        ctx.fillText(stageTitle, width - 20, 26);
-        ctx.restore();
-      };
-
-      const drawOverlays = () => {
-        if (stageBannerTimer > 0) {
-          ctx.save();
-          ctx.globalAlpha = Math.min(1, stageBannerTimer);
-          ctx.fillStyle = "rgba(0, 40, 90, 0.65)";
-          ctx.fillRect(width * 0.25, height * 0.08, width * 0.5, 72);
-          ctx.strokeStyle = "rgba(90, 220, 255, 0.8)";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(width * 0.25, height * 0.08, width * 0.5, 72);
-          ctx.fillStyle = "#98e7ff";
-          ctx.font = "22px 'BIZ UDPGothic', sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(stageTitle, width * 0.5, height * 0.13);
-          ctx.fillStyle = "#d4f4ff";
-          ctx.font = "16px 'BIZ UDPGothic', sans-serif";
-          const bannerSub =
-            stage === 2
-              ? "ボスの守る出口を攻略する手段を見つけよう"
-              : "新セクションを探索しよう";
-          ctx.fillText(bannerSub, width * 0.5, height * 0.17);
-          ctx.restore();
-        }
-
-        if (gameOver) {
-          ctx.save();
-          ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = "#ff6b8a";
-          ctx.font = "48px 'BIZ UDPGothic', sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("GAME OVER", width * 0.5, height * 0.45);
-          ctx.fillStyle = "#ffe4f0";
-          ctx.font = "18px 'BIZ UDPGothic', sans-serif";
-          ctx.fillText("位階の低い器に戻ってから突破しよう。", width * 0.5, height * 0.52);
-          ctx.restore();
-        }
-      };
-
-      // ===== メインループ =====
-      let lastTime = performance.now();
-      const loop = (time) => {
-        const dt = Math.min(0.032, (time - lastTime) / 1000);
-        lastTime = time;
-
-        if (!gameOver) {
-          if (initialPossession.active) {
-            // イーズインで最初の宿主へ吸い込まれる演出
-            initialPossession.elapsed += dt;
-            const t = Math.min(initialPossession.elapsed / initialPossession.duration, 1);
-            const ease = t * t * (3 - 2 * t); // スムーズステップ
-            const target = currentHost;
-            const targetY = target.y - 60;
-            spirit.x =
-              initialPossession.originX +
-              (target.x - initialPossession.originX) * ease;
-            spirit.y =
-              initialPossession.originY +
-              (targetY - initialPossession.originY) * ease;
-            if (t >= 1) {
-              initialPossession.active = false;
-              controlMode = "character";
-              pushLog(`${currentHost.name} に憑依完了。区画の探索を開始しよう。`);
-            }
-          }
-
-          if (controlMode === "character" && currentHost.type === "character") {
-            updateCharacter(currentHost, dt);
-          } else if (controlMode === "computer") {
-            // 端末は位置固定
-          } else if (controlMode === "spirit") {
-            updateSpirit(dt);
-          }
-
-          updateStage2Assist(dt);
-          checkStageExit();
-          checkBossZone();
-        }
-
-        if (stageBannerTimer > 0) {
-          stageBannerTimer = Math.max(0, stageBannerTimer - dt);
-        }
-        if (stage1ExitWarningCooldown > 0) {
-          // 警告ログの連打を防ぐためのクールダウン
-          stage1ExitWarningCooldown = Math.max(0, stage1ExitWarningCooldown - dt);
-        }
-
-        draw();
-        requestAnimationFrame(loop);
-      };
-
-      pushLog("黒い影として起動。最初の宿主へ憑依するまで待とう。");
-      requestAnimationFrame(loop);
-    </script>
-  </body>
-</html>
+diff --git a/index.html b/index.html
+index 302ad268a6c00e0b578212fcab60f0afffb448b8..2cf616a888a0ccfd6184a32a142d28234fdfdb21 100644
+--- a/index.html
++++ b/index.html
+@@ -178,199 +178,331 @@
+           name: "セキュリティ端末",
+           rank: 4,
+           type: "computer",
+           color: "#4dd5ff",
+           x: 1180,
+           y: groundY - 48,
+           speed: 0,
+           talk: ["アクセスキー入力待機中。Cキーで扉を解除可能。"],
+         },
+       ];
+ 
+       // 初期演出用：黒い影（エーテル体）が最初の宿主へ向かう
+       const initialPossession = {
+         active: true,
+         duration: 1.1,
+         elapsed: 0,
+         originX: actors[0].x - 180,
+         originY: actors[0].y - 160,
+       };
+       const spirit = {
+         x: initialPossession.originX,
+         y: initialPossession.originY,
+         speed: 280,
+       };
+       const stageExitX = 1480;
++      const stage1GoalPole = {
++        x: stageExitX + 24,
++        baseY: groundY,
++        height: 152,
++        radius: 8,
++      }; // ステージ1ゴール用のポール
+       const bossZoneX = 1420;
+       let stage = 1;
+       let stageTitle = "ステージ1 // 管制エリア";
+       let stageBannerTimer = 0;
+       let gameOver = false;
+       let stage2SetupDone = false;
+       let controlMode = "spirit"; // character or spirit or computer
+       let currentHost = actors[0];
++      let stage1ExitWarningCooldown = 0; // ステージ1出口警告のクールダウン
+ 
+       const keys = new Set();
+       const logEl = document.getElementById("log");
+       const logs = [];
+ 
+       // ===== Utility =====
+       const pushLog = (text) => {
+         logs.push(`[${new Date().toLocaleTimeString()}] ${text}`);
+         while (logs.length > 6) logs.shift();
+         logEl.innerHTML = logs.map((l) => `<div>${l}</div>`).join("");
+         logEl.scrollTop = logEl.scrollHeight;
+       };
+ 
+       const getActorById = (id) => actors.find((a) => a.id === id);
+ 
+       const resetVelocity = (actor) => {
+         actor.vx = 0;
+         actor.vy = 0;
+       };
+ 
++      const drawRoundedRectPath = (ctx, x, y, w, h, radius) => {
++        // 丸角矩形をCanvas互換で描画するヘルパー
++        const r = Math.max(0, Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2));
++        ctx.beginPath();
++        ctx.moveTo(x + r, y);
++        ctx.lineTo(x + w - r, y);
++        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
++        ctx.lineTo(x + w, y + h - r);
++        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
++        ctx.lineTo(x + r, y + h);
++        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
++        ctx.lineTo(x, y + r);
++        ctx.quadraticCurveTo(x, y, x + r, y);
++        ctx.closePath();
++      };
++
+       const triggerGameOver = (reason) => {
+         if (gameOver) return;
+         gameOver = true;
+         pushLog(`警戒レベル上昇: ${reason}`);
+         actors.forEach((actor) => resetVelocity(actor));
+       };
+ 
++      // ステージ2での助っ人出現を管理
++      const stage2AssistEvent = {
++        // 上位キャラクターのID
++        actorId: "arbiter",
++        // 出現までの待機時間
++        spawnDelay: 12,
++        // 出現後に隙を晒すまでの時間
++        idleDuration: 3,
++        // 憑依できる隙の継続時間
++        openingDuration: 4,
++        // 隙を逃した場合の再チャージ時間
++        cooldownDuration: 6,
++        // 現在の状態
++        state: "waiting",
++        // 状態ごとの経過時間
++        timer: 0,
++        // 憑依に成功したかどうか
++        heroPossessed: false,
++      };
++      // ボス撃破済みかどうかを保持
++      let bossDefeated = false;
++
+       const setupStage2Actors = () => {
+         if (stage2SetupDone) return;
+         const baseY = groundY - 48;
+         const guardConfigs = [
+           { id: "bodyguard_alpha", name: "ボディガードA", x: 1230 },
+           { id: "bodyguard_beta", name: "ボディガードB", x: 1280 },
+           { id: "bodyguard_gamma", name: "ボディガードC", x: 1330 },
+         ];
+         guardConfigs.forEach((cfg) => {
+           if (!getActorById(cfg.id)) {
+             actors.push({
+               id: cfg.id,
+               name: cfg.name,
+               rank: 2,
+               type: "character",
+               color: "#8fc5ff",
+               x: cfg.x,
+               y: baseY,
+               vx: 0,
+               vy: 0,
+               speed: 210,
+               downed: false,
+               possessable: true,
+               talk: ["俺たちが囮になる…だが相手は桁違いだ。"],
+             });
+           }
+         });
+ 
+         if (!getActorById("boss")) {
+           actors.push({
+             id: "boss",
+             name: "ヴォイドセンチネル",
+             rank: 7,
+             type: "boss",
+             color: "#be4dff",
+             x: bossZoneX,
+             y: groundY - 48,
+             vx: 0,
+             vy: 0,
+             speed: 0,
+             possessable: false,
++            defeated: false,
+             talk: ["この先は誰も通れん。"],
+           });
+         }
+ 
+         stage2SetupDone = true;
+         pushLog("位階2のボディーガードが3名合流。しかしボスの一撃は致命的だ。");
+       };
+ 
+       const triggerStage2 = () => {
+         if (stage >= 2) return;
+         stage = 2;
+         stageTitle = "ステージ2 // 初交戦セクション";
+         stageBannerTimer = 3.2;
+         const runner = getActorById("runner");
+         if (runner) {
+           runner.x = 240;
+           runner.y = groundY - 48;
+           resetVelocity(runner);
+           currentHost = runner;
+           controlMode = "character";
+         }
+         const engineer = getActorById("engineer");
+         if (engineer) engineer.x = 120;
+         const guard = getActorById("guard");
+         if (guard) guard.x = 460;
+         const director = getActorById("director");
+         if (director) {
+           director.x = 720;
+           director.talk = ["次のセクションに入るには更なる鍵が必要だ。注意して進め。"];
+         }
+         const terminal = getActorById("terminal");
+         if (terminal) {
+           terminal.x = 1080;
+           terminal.talk = ["研究ブロック制御端末。Cキーで次扉を解除。"];
+         }
+         const door = doors.find((d) => d.id === "labDoor");
+         if (door) {
+           door.x = 1180;
+           door.open = false;
+         }
+         const gate = barriers.find((b) => b.id === "mainGate");
+         if (gate) {
+           gate.enabled = false;
+           gate.permanentUnlock = true;
+         }
+         setupStage2Actors();
++        // 助っ人イベントをリセット
++        stage2AssistEvent.state = "waiting";
++        stage2AssistEvent.timer = 0;
++        stage2AssistEvent.heroPossessed = false;
++        bossDefeated = false;
+         pushLog("ステージ2に突入。ボスが出口を守っている。正面突破は危険だ。");
+       };
+ 
+       const checkStageExit = () => {
+         if (stage !== 1 || gameOver) return;
+         const door = doors.find((d) => d.id === "labDoor");
+         if (!door?.open) return; // 扉解放前は進めない
+         if (controlMode !== "character") return;
+         const host = currentHost;
+         if (!host || host.type !== "character") return;
+-        if (host.x <= stageExitX) return;
+-        if (host.id === "runner") {
+-          triggerStage2();
+-        } else {
+-          triggerGameOver(`${host.name} が不正侵入として拘束された。位階1で突破する必要がある。`);
++        const pole = stage1GoalPole;
++        const poleTouchX = pole.x - pole.radius;
++        if (host.x + 18 < poleTouchX) return;
++        if (host.rank !== 1) {
++          // 位階1以外で接触した場合は注意喚起して押し戻す
++          if (stage1ExitWarningCooldown <= 0) {
++            pushLog(`${host.name} の位階では検問ポールが反応しない。位階1へ戻ろう。`);
++            stage1ExitWarningCooldown = 2.5;
++          }
++          host.x = Math.min(host.x, poleTouchX - 18);
++          resetVelocity(host);
++          return;
++        }
++        pushLog("検問ポールが位階1を認証。通行許可が下りた！");
++        triggerStage2();
++      };
++
++      // ステージ2の助っ人出現を時間経過で制御
++      const updateStage2Assist = (dt) => {
++        if (stage !== 2 || gameOver || bossDefeated) return;
++        const event = stage2AssistEvent;
++        event.timer += dt;
++
++        if (event.state === "waiting" && event.timer >= event.spawnDelay) {
++          event.state = "idle";
++          event.timer = 0;
++          if (!getActorById(event.actorId)) {
++            // 上位キャラクターを初登場させる
++            actors.push({
++              id: event.actorId,
++              name: "上級執行官ツヴァイ",
++              rank: 6,
++              type: "character",
++              color: "#ffb5ff",
++              x: bossZoneX - 80,
++              y: groundY - 48,
++              vx: 0,
++              vy: 0,
++              speed: 200,
++              possessable: false,
++              downed: false,
++              talk: ["ボスの警護は任せろ……油断はしない。"],
++            });
++            pushLog("高位の護衛が現れた。隙を伺って憑依する必要がある。");
++          }
++        } else if (event.state === "idle" && event.timer >= event.idleDuration) {
++          event.state = "opening";
++          event.timer = 0;
++          const elite = getActorById(event.actorId);
++          if (elite) {
++            elite.possessable = true;
++            pushLog("護衛が周囲を警戒している……今が憑依のチャンスだ！");
++          }
++        } else if (event.state === "opening" && event.timer >= event.openingDuration) {
++          const elite = getActorById(event.actorId);
++          if (!event.heroPossessed) {
++            event.state = "cooldown";
++            event.timer = 0;
++            if (elite) {
++              elite.possessable = false;
++            }
++            pushLog("護衛の隙が閉じた。再びチャンスを待とう。");
++          }
++        } else if (event.state === "cooldown" && event.timer >= event.cooldownDuration) {
++          event.state = "idle";
++          event.timer = 0;
+         }
+       };
+ 
++      // ボス撃破処理をまとめる
++      const defeatBoss = (host) => {
++        const boss = getActorById("boss");
++        if (!boss || boss.defeated) return;
++        boss.defeated = true;
++        boss.color = "#5b3070";
++        boss.talk = ["…これ以上は守れぬか。撤退する。"];
++        bossDefeated = true;
++        const door = doors.find((d) => d.id === "labDoor");
++        if (door) {
++          door.open = true;
++        }
++        pushLog(`${host.name} が ${boss.name} を制圧した。出口が解放された！`);
++        stageTitle = "ステージ2 // ボス制圧済";
++      };
++
+       const checkBossZone = () => {
+         if (stage !== 2 || gameOver) return;
+         const boss = getActorById("boss");
+-        if (!boss) return;
++        if (!boss || boss.defeated) return;
+         if (controlMode !== "character") return;
+         const host = currentHost;
+         if (!host || host.type !== "character") return;
+-        if (host.rank > 2) return;
+         if (host.x + 18 < boss.x - 32) return;
++        if (host.id === stage2AssistEvent.actorId && stage2AssistEvent.heroPossessed) {
++          defeatBoss(host);
++          return;
++        }
++        if (host.rank > 2) return;
+         triggerGameOver(`${boss.name} の一撃で ${host.name} は倒れた。別の手段を探そう。`);
+       };
+ 
+       // ===== 入力処理 =====
+       window.addEventListener("keydown", (e) => {
+         if (e.repeat || gameOver) return;
+         keys.add(e.code);
+ 
+         if (initialPossession.active) return; // 演出中は操作無効
+ 
+         if (e.code === "KeyZ") {
+           // 宿主から離脱
+           if (controlMode !== "spirit") {
+             controlMode = "spirit";
+             spirit.x = currentHost.x;
+             spirit.y = currentHost.y - 80;
+             pushLog(`${currentHost.name} から離脱した。`);
+             resetVelocity(currentHost);
+           }
+         }
+ 
+         if (e.code === "KeyX") {
+           // 憑依を試みる
+           attemptPossession();
+         }
+@@ -405,50 +537,57 @@
+         const target = findNearestPossessTarget();
+         if (!target) {
+           pushLog("近くに憑依できる対象がない。");
+           return;
+         }
+         if (target.possessable === false || target.downed) {
+           pushLog(`${target.name} には憑依できない。`);
+           return;
+         }
+         // 端末にアクセスする際は位階チェックを要求
+         if (target.type === "computer") {
+           const hostRank =
+             controlMode === "character" && currentHost?.rank
+               ? currentHost.rank
+               : 0;
+           if (hostRank < 4) {
+             pushLog("位階4以上の器でないとセキュリティ端末に入れない。");
+             return;
+           }
+         }
+ 
+         currentHost = target;
+         controlMode = target.type === "computer" ? "computer" : "character";
+         pushLog(`${target.name} に憑依した。`);
+         resetVelocity(target);
++        if (stage === 2 && target.id === stage2AssistEvent.actorId) {
++          // 隙の最中に憑依できたので成功扱いにする
++          stage2AssistEvent.heroPossessed = true;
++          stage2AssistEvent.state = "ally";
++          target.possessable = false;
++          pushLog("上位の身体を掌握した。ボスへ向かって突破を狙おう！");
++        }
+       };
+ 
+       const findNearestPossessTarget = () => {
+         const range = 80;
+         let best = null;
+         let bestDist = Infinity;
+         const pivot = controlMode === "spirit" ? spirit : currentHost;
+         actors.forEach((actor) => {
+           if (actor === currentHost) return;
+           if (actor.possessable === false || actor.downed) return;
+           const dx = actor.x - pivot.x;
+           const dy = actor.y - pivot.y;
+           const dist = Math.hypot(dx, dy);
+           if (dist < range && dist < bestDist) {
+             best = actor;
+             bestDist = dist;
+           }
+         });
+         return best;
+       };
+ 
+       const interact = () => {
+         if (initialPossession.active) {
+           pushLog("まだ宿主へ漂流中だ。");
+           return;
+@@ -548,50 +687,51 @@
+               actor.x = b.x - 20;
+             } else {
+               actor.x = b.x + b.w + 20;
+             }
+           }
+         });
+       };
+ 
+       // ===== 描画処理 =====
+       const draw = () => {
+         ctx.setTransform(1, 0, 0, 1, 0, 0);
+         const sky = ctx.createLinearGradient(0, 0, 0, height);
+         if (stage === 1) {
+           sky.addColorStop(0, "#011029");
+           sky.addColorStop(1, "#04224d");
+         } else {
+           sky.addColorStop(0, "#031124");
+           sky.addColorStop(1, "#05375a");
+         }
+         ctx.fillStyle = sky;
+         ctx.fillRect(0, 0, width, height);
+ 
+         drawBackground();
+         drawPlatforms();
+         drawDoors();
++        drawStage1Goal();
+         drawBarriers();
+         drawActors();
+         drawSpirit();
+         drawStatus();
+         drawOverlays();
+       };
+ 
+       const drawBackground = () => {
+         // 背景のシティライン
+         ctx.save();
+         ctx.fillStyle = stage === 1 ? "rgba(0, 90, 180, 0.4)" : "rgba(0, 185, 160, 0.45)";
+         [0, 1, 2, 3].forEach((layer) => {
+           const offset = (Date.now() * 0.02 * (layer + 1)) % width;
+           for (let i = -1; i < 8; i++) {
+             const x = i * 220 - offset;
+             const h = 120 + layer * 40;
+             ctx.fillRect(x, groundY - h, 150, h);
+           }
+         });
+         ctx.restore();
+       };
+ 
+       const drawPlatforms = () => {
+         ctx.fillStyle = stage === 1 ? "#062d57" : "#064766";
+         platforms.forEach((p) => {
+@@ -605,94 +745,130 @@
+         barriers.forEach((b) => {
+           ctx.save();
+           ctx.globalAlpha = b.enabled ? 0.9 : 0.25;
+           const grad = ctx.createLinearGradient(b.x, 0, b.x + b.w, 0);
+           grad.addColorStop(0, "rgba(0,140,255,0.8)");
+           grad.addColorStop(1, "rgba(0,210,255,0.2)");
+           ctx.fillStyle = grad;
+           ctx.fillRect(b.x, groundY - b.height, b.w, b.height);
+           ctx.restore();
+         });
+       };
+ 
+       const drawDoors = () => {
+         doors.forEach((d) => {
+           ctx.save();
+           ctx.translate(d.x, d.y);
+           ctx.fillStyle = d.open ? "rgba(80,255,220,0.2)" : "rgba(20,120,255,0.85)";
+           ctx.fillRect(0, 0, d.w, d.h);
+           ctx.strokeStyle = "rgba(150, 255, 255, 0.6)";
+           ctx.lineWidth = 2;
+           ctx.strokeRect(0, 0, d.w, d.h);
+           ctx.restore();
+         });
+       };
+ 
++      const drawStage1Goal = () => {
++        if (stage !== 1) return;
++        const pole = stage1GoalPole;
++        ctx.save();
++        ctx.translate(pole.x, pole.baseY);
++        const poleGrad = ctx.createLinearGradient(0, -pole.height, 0, 0);
++        poleGrad.addColorStop(0, "rgba(90, 200, 255, 0.95)");
++        poleGrad.addColorStop(1, "rgba(0, 80, 200, 0.85)");
++        ctx.fillStyle = poleGrad;
++        drawRoundedRectPath(
++          ctx,
++          -pole.radius,
++          -pole.height,
++          pole.radius * 2,
++          pole.height,
++          6,
++        );
++        ctx.fill();
++        ctx.strokeStyle = "rgba(210, 240, 255, 0.85)";
++        ctx.lineWidth = 2;
++        drawRoundedRectPath(
++          ctx,
++          -pole.radius,
++          -pole.height,
++          pole.radius * 2,
++          pole.height,
++          6,
++        );
++        ctx.stroke();
++        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
++        ctx.font = "14px 'BIZ UDPGothic', sans-serif";
++        ctx.textAlign = "center";
++        ctx.fillText("検問ポール", 0, -pole.height - 12);
++        ctx.restore();
++      };
++
+       const drawActors = () => {
+         actors.forEach((actor) => {
+           ctx.save();
+           ctx.translate(actor.x, actor.y);
+           if (actor.type === "boss") {
+             const grad = ctx.createLinearGradient(0, -160, 0, 0);
+             grad.addColorStop(0, "rgba(255,120,255,0.85)");
+             grad.addColorStop(1, actor.color);
+             ctx.fillStyle = grad;
+-            ctx.beginPath();
+-            ctx.roundRect(-36, -160, 72, 160, 18);
++            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
+             ctx.fill();
+             ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+             ctx.lineWidth = 3;
+-            ctx.strokeRect(-36, -160, 72, 160);
++            drawRoundedRectPath(ctx, -36, -160, 72, 160, 18);
++            ctx.stroke();
+           } else if (actor.type === "computer") {
+             ctx.fillStyle = actor.color;
+             ctx.fillRect(-20, -40, 40, 40);
+             ctx.fillStyle = "rgba(0,0,0,0.6)";
+             ctx.fillRect(-16, -36, 32, 22);
+           } else if (actor.downed) {
+             ctx.globalAlpha = 0.45;
+             ctx.fillStyle = actor.color;
+             ctx.fillRect(-32, -8, 64, 16);
+             ctx.fillStyle = "rgba(10, 18, 28, 0.6)";
+             ctx.fillRect(-24, -6, 48, 10);
+           } else {
+             ctx.fillStyle = actor.color;
+-            ctx.beginPath();
+-            ctx.roundRect(-18, -42, 36, 48, 8);
++            drawRoundedRectPath(ctx, -18, -42, 36, 48, 8);
+             ctx.fill();
+             ctx.fillStyle = "rgba(10, 18, 28, 0.8)";
+             ctx.fillRect(-14, -32, 28, 18);
+           }
+           ctx.fillStyle = "rgba(255,255,255,0.8)";
+           ctx.font = "12px sans-serif";
+           ctx.textAlign = "center";
+           let label = actor.name;
+           if (actor.type === "character") {
+             label += actor.downed ? " (戦闘不能)" : ` / 位階${actor.rank}`;
+           } else if (actor.type === "computer") {
+             label += " / 端末";
+           } else if (actor.type === "boss") {
+-            label += " / ボス";
++            // ボス撃破後は制圧済みの表示を添える
++            label += actor.defeated ? " / ボス (制圧済)" : " / ボス";
+           }
+           const labelY = actor.type === "boss" ? -168 : actor.downed ? -28 : -52;
+           ctx.fillText(label, 0, labelY);
+           ctx.restore();
+         });
+       };
+ 
+       const drawSpirit = () => {
+         if (controlMode === "spirit" || initialPossession.active) {
+           ctx.save();
+           ctx.translate(spirit.x, spirit.y);
+           const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 28);
+           grad.addColorStop(0, "rgba(10,10,14,0.95)");
+           grad.addColorStop(1, "rgba(10,10,14,0.05)");
+           ctx.fillStyle = grad;
+           ctx.beginPath();
+           ctx.arc(0, 0, 28, 0, Math.PI * 2);
+           ctx.fill();
+           ctx.restore();
+         }
+       };
+ 
+       const drawStatus = () => {
+         ctx.save();
+         ctx.fillStyle = "rgba(0, 25, 60, 0.7)";
+@@ -762,42 +938,47 @@
+             const t = Math.min(initialPossession.elapsed / initialPossession.duration, 1);
+             const ease = t * t * (3 - 2 * t); // スムーズステップ
+             const target = currentHost;
+             const targetY = target.y - 60;
+             spirit.x =
+               initialPossession.originX +
+               (target.x - initialPossession.originX) * ease;
+             spirit.y =
+               initialPossession.originY +
+               (targetY - initialPossession.originY) * ease;
+             if (t >= 1) {
+               initialPossession.active = false;
+               controlMode = "character";
+               pushLog(`${currentHost.name} に憑依完了。区画の探索を開始しよう。`);
+             }
+           }
+ 
+           if (controlMode === "character" && currentHost.type === "character") {
+             updateCharacter(currentHost, dt);
+           } else if (controlMode === "computer") {
+             // 端末は位置固定
+           } else if (controlMode === "spirit") {
+             updateSpirit(dt);
+           }
+ 
++          updateStage2Assist(dt);
+           checkStageExit();
+           checkBossZone();
+         }
+ 
+         if (stageBannerTimer > 0) {
+           stageBannerTimer = Math.max(0, stageBannerTimer - dt);
+         }
++        if (stage1ExitWarningCooldown > 0) {
++          // 警告ログの連打を防ぐためのクールダウン
++          stage1ExitWarningCooldown = Math.max(0, stage1ExitWarningCooldown - dt);
++        }
+ 
+         draw();
+         requestAnimationFrame(loop);
+       };
+ 
+       pushLog("黒い影として起動。最初の宿主へ憑依するまで待とう。");
+       requestAnimationFrame(loop);
+     </script>
+   </body>
+ </html>
