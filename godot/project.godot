@@ -1,0 +1,24 @@
+[application]
+config/name="Lelics 16-bit"
+run/main_scene="res://Main.tscn"
+
+[display]
+window/size/viewport_width=640
+window/size/viewport_height=360
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+textures/default_filters/use_nearest_mipmap_filter=false
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+
+[input]
+move_left={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":65), Object(InputEventKey,"physical_keycode":4194311)]}
+move_right={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":68), Object(InputEventKey,"physical_keycode":4194313)]}
+jump={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":32)]}
+leave={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":90)]}
+possess={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":88)]}
+interact={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":67)]}
