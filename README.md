@@ -1,6 +1,6 @@
 # Lelics / Godot 4.7.2
 
-Godot版を主実装とする16ビット風の憑依アクション。`index.html`は比較用の旧HTML版。
+Godot版を主実装とする16ビット風の憑依アクション。`legacy.html`は比較用の旧HTML版。公開入口の`index.html`はGodot Web版を表示する。
 
 - Windows: `exports/Lelics-Windows.zip`を展開して`Lelics-16bit.exe`を起動。
 - Web: `exports/web/`をHTTPサーバーで配信。`file://`の直接起動には対応しない。
