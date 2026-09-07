@@ -1,3 +1,5 @@
 [gd_scene format=3]
 
 [node name="HUD" type="CanvasLayer"]
+
+[node name="Display" type="Node2D" parent="."]

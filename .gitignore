@@ -1,0 +1,4 @@
+exports/*.exe
+exports/*.console.exe
+exports/*.pck
+exports/build-*.log

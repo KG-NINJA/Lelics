@@ -1,0 +1,116 @@
+{
+  "checked_at": "2026-09-07T22:59:31.974954+00:00",
+  "engine": "Godot 4.7.2",
+  "checks": {
+    "source": 74,
+    "windows_export": 74,
+    "web_export": 74,
+    "failed": 0
+  },
+  "frame_rates": [
+    30,
+    60,
+    120
+  ],
+  "physics_trajectory_equal": true,
+  "native_opengl_render": true,
+  "webgl_render": true,
+  "browser_console_errors": 0,
+  "movie": {
+    "path": "preview/movement.avi",
+    "fps": 60,
+    "frames": 481,
+    "seconds": 8.016666666666667,
+    "native_resolution": [
+      640,
+      360
+    ]
+  },
+  "zip_integrity": true,
+  "review": {
+    "mode": "separate implementation and final self-review",
+    "resolved": [
+      "initial acceleration used turn rate",
+      "ending retained velocity"
+    ],
+    "diff_check": "passed for owned source; original third-party license whitespace preserved"
+  },
+  "constraints": [
+    "No full human playthrough or external-device testing claimed.",
+    "Human audio listening was not verified.",
+    "Godot sandbox reports certificate-store and user settings/cache write warnings; syntax tests, exports and actual rendering passed.",
+    "Movie shutdown reported two ObjectDB instances; no gameplay test or Web console errors."
+  ],
+  "source_sha256": {
+    "godot/.gitignore": "7a86efd9a3426b8ce1e6d5fb19dbf79acd3d59eb5b2e8f020e4912be6b1e9580",
+    "godot/Actor.tscn": "ece736d03cc0a40b6f120bc0e387c3e346e8249f4c821586aab3c1079e8eda35",
+    "godot/assets/audio/electronic.wav": "d05c6e488d4e7617d0d5b573a000b1ea30986a415e259181d513860d61032222",
+    "godot/assets/audio/electronic.wav.import": "0d5d3ce9168320f5864f3ec726e7db3854f63086bba804ae9664d49ef404559b",
+    "godot/assets/audio/hit.wav": "770b931f2d4d4b5c376b7a456b2b19ffca2785b07af0c49a84a5d581a0d47802",
+    "godot/assets/audio/hit.wav.import": "1875628be5d2dac92affcdbf1ee40579502609c3d9bb206bc5774d4ab32ad454",
+    "godot/assets/audio/waves.wav": "fe9e6234b55d18da3c7fedab3230bd1e70e0074e194fb9551a8b2aa6bbfa8f72",
+    "godot/assets/audio/waves.wav.import": "2ecc9b9cad5820c25fcacdcd34d7b87bc4f6d249b432ff7998fd6d23361ee18c",
+    "godot/assets/NotoSansJP.ttf": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
+    "godot/assets/NotoSansJP.ttf.import": "2929a864ff96b4692e4de893b4fc959f8aa1f7838436ad573dc998ce51d8f04c",
+    "godot/assets/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+    "godot/character_art.gd": "67363119046e12abc9f2dd8a156a345545a90b0d633afd89b18bc44d17911a03",
+    "godot/character_art.gd.uid": "6ede5d11a49037d6cc369282b3b71bb3dc5b8151ff50f620252dfea3e3df4c1d",
+    "godot/export_presets.cfg": "3c40dc89f19f6c4011b6d328f2d2695dd1ed89964da81ea6a4c7939fe8c488e8",
+    "godot/HUD.tscn": "9290177650d88f4305001fbd1d49984c62e0a9d7a29530fe7af1768de0192a16",
+    "godot/main.gd": "2ffc57c33737f45a8e3e44ec82256f15a6c05cf1a6d7c640cb0c1b19000849ba",
+    "godot/main.gd.uid": "3421d2ef643669522aabeac3fe1c3b9a00eae972b53f6367e1e7c5dba2dde771",
+    "godot/Main.tscn": "b3c2928846342628c6d15a2c1aaaaf2a4b22fa75ac4966784da38a61679b424e",
+    "godot/project.godot": "f82255cfd7cf0ad83e21281b3591f2fa267c55a91a4d50fa592ae8ebaa3f5284",
+    "godot/README.md": "a10d161a608b90b7c324f50768497c313b74de0e2e2339ccba671115ad16ed96",
+    "godot/sound.gd": "10952521da6d159f64774efafc620b923311ffe78c486ea85e253c3aa50ffed6",
+    "godot/sound.gd.uid": "dc5797b8e0b4b4a49c5afe68ddb1c63e8d22b635af9bcd901ebc7559331f5316",
+    "godot/tests.gd": "4b1bc3e4ab111f38179d8f3a37f96b0090193b6eb709722b402a437d8286ad1f",
+    "godot/tests.gd.uid": "53209f6a5afe4b484de2d35f1a80ad6567be90e60c3497c6c05d4329b32b9780",
+    "godot/verification/capture.gd": "13656ff01a64d0bf40afd0a56a642079bcd22cb6c9524a69266735cfdbeff46e",
+    "godot/verification/capture.gd.uid": "2e9e752bf509de6a687796bd5f1e3fa4add91bdc2443f4c916f96492dd7f6822",
+    "godot/verification/movie.gd": "33a6bf8ce7d43858ba26ed6e2e7d54635e9961ea045894eec21f6849cc62ed4f",
+    "godot/verification/movie.gd.uid": "d8660f6b033e97be6672ac4f3190c1846b0a387e2534815ecd5da0bee9f36793",
+    "godot/verification_suite.gd": "823841e7bf70501926fcde65bfcf846a096bf0084fee471ccfc9c890f44e3b9b",
+    "godot/verification_suite.gd.uid": "a6f485fe65cd5eae86fc0941f97a31b3d756e15204b9639ca7b036d0cd37515f",
+    "godot/World.tscn": "deeff1fca4755431e761e244fdb5e5d39e4b4c701c1c2c57a7ffe948de5fd966"
+  },
+  "artifact_sha256": {
+    "exports/Lelics-16bit.exe": "1aab633525fee0c25c4b39e8164bb4f157bdb89cff4e32450fa3d5de5be48220",
+    "exports/Lelics-Windows.zip": "fe70a8d34d80cc687d4b7405e2fe9dca1be1d460376370a96276154e8ef733d8",
+    "exports/web/index.pck": "5b38878beae3c44f1b1bca83302c826da82977ac05b99c9f2e62f8f0c3478680",
+    "exports/web/index.wasm": "fc74679e3b97f76878947fcd4fbe1268cbfa6188182a2e33bbc3f5dc9bfa57d0",
+    "exports/web/index.html": "06e9d4b09d67cebd97aa4224f8b2f216406b0dbec11666b9ef8108d4848b42a5"
+  },
+  "audio": {
+    "bgm": false,
+    "kinds": [
+      "waves",
+      "electronic",
+      "hit"
+    ],
+    "input_analysis": {
+      "electronic.wav": {
+        "frames": 4851,
+        "rate": 22050,
+        "peak": 0.27667236328125,
+        "rms": 0.07850735105191185,
+        "clipped": 0
+      },
+      "hit.wav": {
+        "frames": 6615,
+        "rate": 22050,
+        "peak": 0.8499755859375,
+        "rms": 0.1288606456612219,
+        "clipped": 0
+      },
+      "waves.wav": {
+        "frames": 176400,
+        "rate": 22050,
+        "peak": 0.753173828125,
+        "rms": 0.10213470994018076,
+        "clipped": 0
+      }
+    },
+    "human_listening_verified": false
+  }
+}
